@@ -1,24 +1,49 @@
+%define _gnu %{nil}
 %define _cross_target m68k-apple-aux
-# %define _sysroot /usr/lib/%{_cross_target}
+%define _build %{_build_arch}-%{_vendor}-%{_os}
+
+%ifarch m68k
+%define _host		%{_cross_target}
+%define _prefix		/usr/local/gnu
+%define _exec_prefix	%{_prefix}
+%define _bindir		%{_exec_prefix}/bin
+%define _sbindir	%{_exec_prefix}/sbin
+%define _libexecdir	%{_exec_prefix}/libexec
+%define _datadir	%{_prefix}/share
+%define _sysconfdir	%{_prefix}/etc
+%define _sharedstatedir	%{_prefix}/com
+%define _localstatedir	%{_prefix}/var
+%define _lib		lib
+%define _libdir		%{_exec_prefix}/%{_lib}
+%define _includedir	%{_prefix}/include
+%define _oldincludedir	/usr/include
+%define _infodir	%{_prefix}/info
+%define _mandir		%{_prefix}/man
+%define __strip		/usr/bin/%{_cross_target}-strip
+%define __objdump	/usr/bin/%{_cross_target}-objdump
+%define optflags	-O2 -D_POSIX_SOURCE
+#%define posixcflags	-D_POSIX_SOURCE
+#%define posixlibflags	-lposix
+%else
+%define _host %{_build}
+#%define posixcflags %{nil}
+#%define posixlibflags %{nil}
+%endif
 
 Summary: A GNU collection of binary utilities.
+%ifarch m68k
+Name: binutils
+%else
 Name: %{_cross_target}-binutils
+%endif
 Version: 2.14
 Release: 1
 Copyright: GPL
 Group: Development/Tools
 URL: https://www.gnu.org/software/binutils/
 Source: https://ftp.gnu.org/gnu/binutils/binutils-%{version}.tar.bz2
-
-Buildroot: /var/tmp/binutils-root
-#BuildRequires: texinfo >= 4.0
-#, dejagnu
-#Prereq: /sbin/install-info
-#%ifarch ia64
-#Obsoletes: gnupro
-#%endif
-
-%define _gnu %{nil}
+Patch0: binutils-2.14-havesysconf.patch
+BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
 
 %description
 Binutils is a collection of binary utilities, including ar (for
@@ -34,41 +59,61 @@ addresses to file and line).
 
 %prep
 %setup -q -n binutils-%{version}
+%patch0 -p1 -b .havesysconf~
 
 %build
-mkdir build-%{_target_platform}-%{_cross_target}
-cd build-%{_target_platform}-%{_cross_target}
-CARGS=
-%ifarch sparc ppc s390
-CARGS=--enable-64-bit-bfd
+# echo "_arch: %{_arch}"
+# echo "_build_arch: %{_build_arch}"
+# echo "_build_cpu: %{_build_cpu}"
+# echo "_host_cpu: %{_host_cpu}"
+# echo "_target_cpu: %{_target_cpu}"
+# echo "_vendor: %{_vendor}"
+%{__mkdir_p} build-%{_cross_target}
+cd build-%{_cross_target}
+# LIBS="${LIBS:-%posixlibflags}" ; export LIBS ; \
+CFLAGS="${CFLAGS:-%optflags}" ; export CFLAGS ; \
+CXXFLAGS="${CXXFLAGS:-%optflags}" ; export CXXFLAGS ; \
+FFLAGS="${FFLAGS:-%optflags}" ; export FFLAGS ; \
+../configure --host=%{_host} --build=%{_build} \
+	--target=%{_cross_target} \
+	--program-prefix=%{?_program_prefix} \
+ 	--prefix=%{_prefix} \
+	--exec-prefix=%{_exec_prefix} \
+	--bindir=%{_bindir} \
+	--sbindir=%{_sbindir} \
+	--sysconfdir=%{_sysconfdir} \
+	--datadir=%{_datadir} \
+	--includedir=%{_includedir} \
+	--libdir=%{_libdir} \
+	--libexecdir=%{_libexecdir} \
+	--localstatedir=%{_localstatedir} \
+	--sharedstatedir=%{_sharedstatedir} \
+	--mandir=%{_mandir} \
+	--infodir=%{_infodir} \
+%ifnarch m68k
+	--with-sysroot \
 %endif
-%ifarch ia64
-CARGS=--enable-targets=i386-linux
-%endif
-CFLAGS="${CFLAGS:-%optflags}" ../configure \
-  --target=%{_cross_target} --host=%{_target_platform} --build=%{_target_platform} \
-  --prefix=%{_prefix} --exec-prefix=%{_exec_prefix} \
-  --bindir=%{_bindir} --sbindir=%{_sbindir} --sysconfdir=%{_sysconfdir} \
-  --datadir=%{_datadir} --includedir=%{_includedir} --libdir=%{_libdir} \
-  --libexecdir=%{_libexecdir} --localstatedir=%{_localstatedir} \
-  --sharedstatedir=%{_sharedstatedir} --mandir=%{_mandir} \
-  --infodir=%{_infodir} --enable-shared --disable-nls --with-sysroot $CARGS
-make %{_smp_mflags} tooldir=%{_prefix} all
+	--disable-nls
+%{__make} %{_smp_mflags} tooldir=%{_prefix} all
 echo ====================TESTING=========================
-make -k check || :
+%{__make} -k check || :
 echo ====================TESTING END=====================
 cd ..
 
 %install
-rm -rf %{buildroot}
-mkdir -p %{buildroot}%{_prefix}
-cd build-%{_target_platform}-%{_cross_target}
+%{__rm} -rf %{buildroot}
+%{__mkdir_p} %{buildroot}%{_prefix}
+cd build-%{_cross_target}
 %makeinstall
-rm -f %{buildroot}%{_prefix}/%{_lib}/libiberty.a
-rm -rf %{buildroot}%{_infodir}
+%{__gzip} -q9f %{buildroot}%{_infodir}/*.info*
+
+%ifnarch m68k
+%{__rm} -f %{buildroot}%{_prefix}/%{_lib}/libiberty.a
+%{__rm} -rf %{buildroot}%{_infodir}
+%endif
 
 %clean
-rm -rf %{buildroot}
+%{__rm} -rf %{buildroot}
 
 %post
 /sbin/ldconfig
@@ -80,10 +125,16 @@ rm -rf %{buildroot}
 %doc README
 %{_prefix}/bin/*
 %{_prefix}/%{_cross_target}/bin/*
-%{_mandir}/man1/*
-%{_prefix}/%{_target_platform}/%{_cross_target}/include/*
-%{_prefix}/%{_target_platform}/%{_cross_target}/%{_lib}/*
 %{_prefix}/%{_cross_target}/%{_lib}/ldscripts/*
+%{_mandir}/man1/*
+%ifarch m68k
+%{_prefix}/include/*
+%{_prefix}/%{_lib}/*
+%{_infodir}/*info*
+%else
+%{_prefix}/%{_host}/%{_cross_target}/include/*
+%{_prefix}/%{_host}/%{_cross_target}/%{_lib}/*
+%endif
 
 %changelog
 * Mon Sep 06 2021 Jacob Berkman <jacob@87k.net> 2.14-1
