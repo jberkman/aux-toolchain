@@ -1,0 +1,174 @@
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/command.h bash-5.1.8/command.h
+--- bash-5.1.8.orig/command.h	2020-08-14 12:04:39.000000000 -0700
++++ bash-5.1.8/command.h	2021-09-20 12:14:05.000000000 -0700
+@@ -23,6 +23,7 @@
+ #define _COMMAND_H_
+ 
+ #include "stdc.h"
++#include <signal.h>
+ 
+ /* Instructions describing what kind of thing to do for a redirection. */
+ enum r_instruction {
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/config-top.h bash-5.1.8/config-top.h
+--- bash-5.1.8.orig/config-top.h	2020-11-16 07:34:26.000000000 -0800
++++ bash-5.1.8/config-top.h	2021-09-20 14:28:34.000000000 -0700
+@@ -175,7 +175,7 @@
+ /* Define to use libc mktemp/mkstemp instead of replacements in lib/sh/tmpfile.c */
+ #define USE_MKTEMP
+ #define USE_MKSTEMP
+-#define USE_MKDTEMP
++/* #define USE_MKDTEMP */
+ 
+ /* Define to force the value of OLDPWD inherited from the environment to be a
+    directory */
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/configure.ac bash-5.1.8/configure.ac
+--- bash-5.1.8.orig/configure.ac	2020-12-04 06:04:55.000000000 -0800
++++ bash-5.1.8/configure.ac	2021-09-21 15:29:40.000000000 -0700
+@@ -834,8 +834,8 @@ dnl checks for c library functions
+ AC_CHECK_FUNCS(bcopy bzero confstr faccessat fnmatch \
+ 		getaddrinfo gethostbyname getservbyname getservent inet_aton \
+ 		imaxdiv memmove pathconf putenv raise random regcomp regexec \
+-		setenv setlinebuf setlocale setvbuf siginterrupt strchr \
+-		sysconf syslog tcgetattr times ttyname tzset unsetenv)
++		setenv setlinebuf setlocale setvbuf siginterrupt srandom \
++		strchr sysconf syslog tcgetattr times ttyname tzset unsetenv)
+ 
+ AC_CHECK_FUNCS(vasprintf asprintf)
+ AC_CHECK_FUNCS(isascii isblank isgraph isprint isspace isxdigit)
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/lib/glob/glob.c bash-5.1.8/lib/glob/glob.c
+--- bash-5.1.8.orig/lib/glob/glob.c	2020-10-30 10:49:00.000000000 -0800
++++ bash-5.1.8/lib/glob/glob.c	2021-09-21 15:16:33.000000000 -0700
+@@ -119,10 +119,10 @@ void udequote_pathname PARAMS((char *));
+ #if HANDLE_MULTIBYTE
+ void wcdequote_pathname PARAMS((wchar_t *));
+ static void wdequote_pathname PARAMS((char *));
++static void dequote_pathname PARAMS((char *));
+ #else
+ #  define dequote_pathname udequote_pathname
+ #endif
+-static void dequote_pathname PARAMS((char *));
+ static int glob_testdir PARAMS((char *, int));
+ static char **glob_dir_to_array PARAMS((char *, char **, int));
+ 
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/lib/sh/input_avail.c bash-5.1.8/lib/sh/input_avail.c
+--- bash-5.1.8.orig/lib/sh/input_avail.c	2019-12-26 13:59:17.000000000 -0800
++++ bash-5.1.8/lib/sh/input_avail.c	2021-09-21 15:30:26.000000000 -0700
+@@ -28,12 +28,12 @@
+ #endif
+ 
+ #include <sys/types.h>
+-#include <fcntl.h>
+ #if defined (HAVE_SYS_FILE_H)
+ #  include <sys/file.h>
+ #endif /* HAVE_SYS_FILE_H */
++#include <fcntl.h>
+ 
+-#if defined (HAVE_PSELECT)
++#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
+ #  include <signal.h>
+ #endif
+ 
+@@ -110,7 +110,7 @@ nchars_avail (fd, nchars)
+ #if defined(HAVE_SELECT)
+   fd_set readfds, exceptfds;
+ #endif
+-#if defined (HAVE_PSELECT)
++#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
+   sigset_t set, oset;
+ #endif
+ 
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/lib/sh/random.c bash-5.1.8/lib/sh/random.c
+--- bash-5.1.8.orig/lib/sh/random.c	2020-05-29 11:21:10.000000000 -0700
++++ bash-5.1.8/lib/sh/random.c	2021-09-20 13:36:05.000000000 -0700
+@@ -34,6 +34,8 @@
+ #include <stdio.h>
+ #include "bashansi.h"
+ 
++#include <sys/time.h>
++
+ #include "shell.h"
+ 
+ extern time_t shell_start_time;
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/lib/sh/tmpfile.c bash-5.1.8/lib/sh/tmpfile.c
+--- bash-5.1.8.orig/lib/sh/tmpfile.c	2020-06-05 10:46:55.000000000 -0700
++++ bash-5.1.8/lib/sh/tmpfile.c	2021-09-21 15:28:37.000000000 -0700
+@@ -117,7 +117,7 @@ get_tmpdir (flags)
+ static void
+ sh_seedrand ()
+ {
+-#if HAVE_RANDOM
++#if defined (HAVE_RANDOM) && defined (HAVE_SRANDOM)
+   int d;
+   static int seeded = 0;
+   if (seeded == 0)
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/locale.c bash-5.1.8/locale.c
+--- bash-5.1.8.orig/locale.c	2020-02-24 12:08:43.000000000 -0800
++++ bash-5.1.8/locale.c	2021-09-20 13:11:52.000000000 -0700
+@@ -91,7 +91,7 @@ set_default_locale ()
+ #if defined (HANDLE_MULTIBYTE)
+   locale_shiftstates = mblen ((char *)NULL, 0);
+ #else
+-  local_shiftstates = 0;
++  locale_shiftstates = 0;
+ #endif
+ }
+ 
+@@ -117,7 +117,7 @@ set_default_locale_vars ()
+ #    if defined (HANDLE_MULTIBYTE)
+       locale_shiftstates = mblen ((char *)NULL, 0);
+ #    else
+-      local_shiftstates = 0;
++      locale_shiftstates = 0;
+ #    endif
+ 
+       u32reset ();
+@@ -226,7 +226,7 @@ set_locale_var (var, value)
+ #  if defined (HANDLE_MULTIBYTE)
+       locale_shiftstates = mblen ((char *)NULL, 0);
+ #  else
+-      local_shiftstates = 0;
++      locale_shiftstates = 0;
+ #  endif
+       u32reset ();
+       return r;
+@@ -250,7 +250,7 @@ set_locale_var (var, value)
+ #if defined (HANDLE_MULTIBYTE)
+ 	  locale_shiftstates = mblen ((char *)NULL, 0);
+ #else
+-	  local_shiftstates = 0;
++	  locale_shiftstates = 0;
+ #endif
+ 	  u32reset ();
+ 	}
+@@ -391,7 +391,7 @@ reset_locale_vars ()
+ #  if defined (HANDLE_MULTIBYTE)
+   locale_shiftstates = mblen ((char *)NULL, 0);
+ #  else
+-  local_shiftstates = 0;
++  locale_shiftstates = 0;
+ #  endif
+   u32reset ();
+ #endif
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/siglist.c bash-5.1.8/siglist.c
+--- bash-5.1.8.orig/siglist.c	2019-09-16 08:13:28.000000000 -0700
++++ bash-5.1.8/siglist.c	2021-09-20 13:05:39.000000000 -0700
+@@ -23,6 +23,7 @@
+ #if !defined (HAVE_SYS_SIGLIST) && !defined (HAVE_UNDER_SYS_SIGLIST) && !defined (HAVE_STRSIGNAL)
+ 
+ #include <stdio.h>
++#include "command.h"
+ #include "general.h"
+ #include <signal.h>
+ 
+diff -rup -x '*~' -x 'obj-*' bash-5.1.8.orig/support/Makefile.in bash-5.1.8/support/Makefile.in
+--- bash-5.1.8.orig/support/Makefile.in	2018-05-11 11:28:43.000000000 -0700
++++ bash-5.1.8/support/Makefile.in	2021-09-21 15:20:10.000000000 -0700
+@@ -53,7 +53,7 @@ DEFS = @DEFS@
+ LOCAL_DEFS = @LOCAL_DEFS@
+ 
+ LIBS = @LIBS@
+-LIBS_FOR_BUILD = ${LIBS}		# XXX
++LIBS_FOR_BUILD = 
+ 
+ LOCAL_LDFLAGS = @LOCAL_LDFLAGS@
+ LDFLAGS = @LDFLAGS@ $(LOCAL_LDFLAGS) $(CFLAGS)
